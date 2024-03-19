@@ -1,0 +1,252 @@
+---
+title: "Phylogenetic Analysis"
+author: "Klaus Schliep"
+date: "18/03/2024"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup 
+
+First we load the *phangorn* package, read in the alignment and also again the csv file. 
+
+```{R read_fasta} 
+library(phangorn)
+tab <- read.csv("cats_dogs.csv")
+head(tab)
+align <- read.phyDat("cats_dogs_mafft.fasta", format="fasta")
+names(align) <- tab$Latin_name
+image(align)
+```
+
+
+
+## Distance based methods, Neighbor Joining
+
+Neighbor Joining needs a distance matrix as input.
+So we first create a distance matrix:
+
+```{R distance_matrix, eval=TRUE, results="hide"}
+dm <- dist.ml(align, "F81", exclude = "pairwise")
+```
+
+Using the distance matrix we can compute a Neighbor Joining (NJ) or UPGMA tree.
+
+```{R NJ, eval=TRUE}
+tree_NJ <- NJ(dm)
+tree_UPGMA <- upgma(dm)
+```
+
+And we can plot these trees using the plot function:
+
+```{R plot_NJ, eval=FALSE}
+par(mar = c(1,1,2,1)) # smaller margins
+plot(midpoint(tree_NJ), cex = 0.5)
+plot(tree_UPGMA, cex = 0.5)
+```
+
+What is the difference between the 2 trees?
+
+You can get a lot of inspiration if you look into the help typing `?plot.phylo`.
+You can check what the arguments do but many function also have some examples and you can click on a link `run examples` it will just do this and can get see what different arguments in use.
+
+Now we export the 2 trees so that they can read into other programs (e.g. figtree or dendrogram) or use  another time.
+
+```{R export_NJ_tree, eval=FALSE}
+write.tree(tree_NJ, file="results/tree_NJ.phy")
+write.tree(tree_UPGMA, "results/tree_UPGMA.phy")
+```
+
+Always make sure that each steps work.
+Check that the files contain a Newick string.
+
+## Maximum Parsimony
+
+Next we perform Maximum Parsimony.
+Here we need only one command to execute and it will return a tree, which already has bootstrap values assigned to it.
+
+```{R parsimony, eval=TRUE, cache=FALSE}
+set.seed(42)
+tree_MP <- pratchet(align, trace=0)
+# we need to run this function ro assign edge length to the tree
+tree_MP <- acctran(tree_MP, align)
+```
+
+We now can use the function **plotBS** plots the tree with Bootstrap values.
+Check out the help of `?plotBS` to search for a parameter to plot only "large" values.
+
+```{R plot_parsimony, eval=FALSE, fig.show='hide'}
+par(mar = c(1,1,2,1)) # smaller margins
+plotBS(tree_MP, type = "phylogram")
+```
+
+Try different **types** of the trees.
+Which one do you like most?
+
+We artificial root the tree as it looks a bit better and add a `scalebar` and title to the plot.
+
+```{R plot_parsimony_nicer, eval=FALSE, fig.show='hide'}
+plotBS(midpoint(tree_MP), type = "phylogram", main="Maximum Parsimony")
+add.scale.bar()
+```
+
+Clicking on **export** button in Plots tab you can save each graphic.
+Much nicer than doing screen shots!!
+
+Export the tree and check that the tree is in Newick format.
+
+```{R, eval=TRUE}
+write.tree(tree_MP, "results/tree_MP.phy")
+```
+
+## Maximum Likelihood Analysis
+
+Maximum Likelihood needs to set and optimize a lot of parameters. **modelTest** is a little helper functions which guides us to selecting the best model for your data set. We estimate some of the most common models. 
+
+```{R modelTest, eval=TRUE, cache=TRUE}
+set.seed(42)
+mt <- modelTest(align, model = c("JC", "F81", "K80", "HKY", "SYM", "GTR"),
+                control = pml.control(trace=0))
+mt
+```
+What is the best (lowest) fitting model according to the Akaike Informaton Criteria (AIC) and the Bayesian Information Criteria (BIC) for your dataset?
+Are AIC and the BIC agreeing?
+We can use this object to optimize the tree with the best fitting model!
+
+```{R pml_bb, eval=TRUE, cache=TRUE}
+set.seed(42)
+fit <- pml_bb(mt, control=pml.control(trace=0))
+fit
+```
+
+We can extract the Maximum likelihood tree from the fit object using the `$` sign.
+
+```{R export_ML, eval=TRUE}
+tree_ML <- fit$tree
+```
+
+We now can do a seperate bootstrap run.
+The development version of phangorn (on the server) does implicitly a so called "ultrafast" bootstrap [@minh2013]. We also extract these trees. 
+
+```{R export_BS, eval=TRUE}
+tree_bs <- fit$bs
+```
+
+
+We now can use the function **plotBS** to plot the tree with Bootstrap values to the tree. Look for a parameter to plot only support values if these are larger than a threshold, e.g. 80%.
+
+```{R plot_ML, eval=TRUE}
+# use plotBS to assign bootstrap values to plot_ML
+tree_ML <- plotBS(tree_ML, tree_bs, type = "none", main="Maximum Likelihood")
+
+plotBS(midpoint(tree_ML), type = "p", main="Maximum Likelihood")
+add.scale.bar()  
+```
+
+In the console you can also execute the command `add.scale.bar(ask=TRUE)`
+
+Export the tree.
+```{R, eval=FALSE}
+write.tree(tree_ML, "results/tree_ML.phy")
+```
+
+## Plotting trees
+ 
+We seen already two functions to plot trees `plotBS` and `plot`, which is actually a function called `plot.phylo`. `plotBS` is based on `plot.phylo` adding the bootstrap values on the tree, but otherwise can
+take all the parameters of `plot.phylo`. 
+
+### Adding color to a tree
+
+We can change the color of the tips setting the argument `tip.color`.
+```{R}
+plot(tree_MP, tip.color="red")
+```
+If `tip.color` has only one value than all tips colored in that color. 
+If `tip.color` is a vector than it will color the tips with different colors. The order of the labels is given by `tree_MP$tip.label`.  
+
+
+Let's look into the table and remember that we added two columns one with colors and one with shortened species names. 
+```{R}
+head(tab)
+```
+If look at the `Family` column, we can see that there are 9 different families. 
+```{R}
+unique(tab$Family)
+```
+We can 
+```{R, eval=TRUE}
+col <- c("green", "blue", "lightblue", "red", "orange", "brown", "yellow", "darkgreen", "magenta")
+col <- setNames(col, unique(tab$Family))
+tip_color <- col[tab$Family]
+tip_color <- setNames(tip_color, tab$Latin_name)
+```
+And finally we can plot the tree and also color the tip labels with different colors for the families. We also add a legend to see which color correspondents to each family. 
+```{R, eval=TRUE}
+plot(midpoint(tree_MP), type="fan", tip.col=tip_color[tree_MP$tip.label])
+
+
+legend("bottomright", unique(tab$Family), col=col, pch=19)
+```
+
+
+## Comparing trees
+
+1.  Are the NJ, UPGMA, Maximum Parsimony and the Maximum Likelihood tree the same?
+2.  What trees are more similar?
+
+When you executed all code chunks above you should have all the files in the results folder and can reload them again
+
+```{R read_trees, eval=FALSE}
+library(phangorn)
+# Read in the trees if they are not in the environment any more
+tree_MP <- read.tree("results/tree_MP.phy")
+tree_ML <- read.tree("results/tree_ML.phy")
+tree_NJ <- read.tree("results/tree_NJ.phy")
+tree_UPGMA <- read.tree("results/tree_UPGMA.phy")
+```
+
+One way to compare trees is using the Robinson-Foulds (RF) distance [@Robinson1981].
+Here we build a distance matrix between all trees we computed.
+Which ones are more similar?
+
+```{R Robinson-Foulds, eval=TRUE}
+dm_RF <- RF.dist(c(tree_NJ, tree_UPGMA, tree_MP, tree_ML))
+dm_RF <- as.matrix(dm_RF)
+dimnames(dm_RF) <- list(c("NJ", "UPGMA", "MP", "ML"), c("NJ", "UPGMA", "MP", "ML"))
+dm_RF
+```
+
+To compare two trees (also) there is the following function.
+
+```{R comparePhylo_1, eval=TRUE}
+comparePhylo(tree_MP, tree_ML, plot=TRUE, type="p", 
+             use.edge.length = TRUE)
+```
+
+Change plotting style, e.g. plotting an unrooted tree in stead of a phylogram.
+It is possible to change the font size and have flexibility to move the legend around.
+
+```{R comparePhylo_2, eval=TRUE}
+comparePhylo(tree_ML, tree_MP, plot=TRUE, type="unrooted", lab4ut="axial", location = list(x = 8, y = -2), cex=.5)
+```
+
+I prefer often to highlight differences not shared splits.
+
+```{R comparePhylo_3, eval=TRUE}
+comparePhylo(tree_ML, tree_MP, plot=TRUE, lab4ut="axial", type="fan",
+             cex=.5, commons=FALSE, use.edge.length = TRUE)
+```
+
+When comparing different trees from different genes or gene trees with the species tree often the often the sets of species differ.
+In such a case we can prune all the trees to have the same tip label first.
+
+
+
+## References
